@@ -6,7 +6,11 @@ import io
 import picamera
 import logging
 import socketserver
-import face_reco as fr
+import numpy as np
+import face_recognition as fr
+import cv2
+import smtplib
+from picamera.array import PiRGBArray
 from threading import Condition
 from http import server
 
@@ -79,6 +83,31 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.send_error(404)
             self.end_headers()
 
+class FacialRecognition(object):
+    def __init__(self):
+        prabjot_image = fr.load_image_file("prabjot.jpeg")
+        prabjot_face_encoding = fr.face_encodings(prabjot_image)[0]
+
+        self.known_face_encondings = [prabjot_face_encoding]
+        self.known_face_names = ["Prabjot"]
+
+        self.current_name = "Unknown"
+        
+    def detect_face(self,frame):
+    
+        rgb_frame = frame[:, :, ::-1]
+        face_locations = fr.face_locations(rgb_frame)
+        face_encodings = fr.face_encodings(rgb_frame, face_locations)
+
+        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+
+            matches = fr.compare_faces(self.known_face_encondings, face_encoding)
+            face_distances = fr.face_distance(self.known_face_encondings, face_encoding)
+            best_match_index = np.argmin(face_distances)
+        
+            if matches[best_match_index]:
+                print(self.known_face_names[best_match_index])
+
 class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -86,6 +115,14 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 with picamera.PiCamera(resolution='640x480', framerate=28) as camera:
     output = StreamingOutput()
     camera.start_recording(output, format='mjpeg')
+    
+    rawCapture= PiRGBArray(camera, size=(640,480))
+    for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+        image =np.array(frame.array)
+        detectFace = FacialRecognition()
+        detectFace.detect_face(image)
+        
+        rawCapture.truncate(0)
     try:
         address = ('', 8000)
         server = StreamingServer(address, StreamingHandler)
